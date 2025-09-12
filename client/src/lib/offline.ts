@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react';
+
 // IndexedDB for offline storage
 interface OfflineData {
   healthRecords: any[];

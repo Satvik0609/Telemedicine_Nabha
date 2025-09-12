@@ -1,5 +1,5 @@
-// Client-side OpenAI functionality will be handled through backend API calls
-// This file provides types and utilities for symptom checking
+// Client-side EndlessMedical functionality will be handled through backend API calls
+// This file provides types and utilities for symptom checking using FREE EndlessMedical API
 
 export interface SymptomCheckResponse {
   possibleConditions: string[];

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { auth } from '@/lib/firebase';
 import { analyzeSymptoms, getSeverityColor, getSeverityBgColor, type SymptomCheck } from '@/lib/openai';
 import { useToast } from '@/hooks/use-toast';
 
@@ -17,6 +18,14 @@ export function SymptomChecker() {
   const [symptoms, setSymptoms] = useState<string[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<SymptomCheck | null>(null);
+
+  // Use demo user if Firebase is not configured and no user is authenticated
+  const currentUser = user || (!auth ? {
+    id: 'demo-user',
+    name: 'Demo User',
+    email: 'demo@example.com',
+    role: 'patient' as const
+  } : null);
 
   const addSymptom = () => {
     if (currentSymptom.trim() && !symptoms.includes(currentSymptom.trim())) {
@@ -30,7 +39,7 @@ export function SymptomChecker() {
   };
 
   const analyzeSymptom = async () => {
-    if (symptoms.length === 0 || !user) {
+    if (symptoms.length === 0 || !currentUser) {
       toast({
         title: "Error",
         description: "Please add at least one symptom to analyze.",
@@ -41,7 +50,7 @@ export function SymptomChecker() {
 
     setIsAnalyzing(true);
     try {
-      const analysis = await analyzeSymptoms(symptoms, user.id);
+      const analysis = await analyzeSymptoms(symptoms, currentUser.id);
       setResult(analysis);
       
       toast({

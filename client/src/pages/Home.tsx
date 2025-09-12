@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { auth } from '@/lib/firebase';
 import { AppointmentCard } from '@/components/AppointmentCard';
 import { DoctorCard } from '@/components/DoctorCard';
 import { SymptomChecker } from '@/components/SymptomChecker';
@@ -21,14 +22,22 @@ export default function Home() {
   const [showSymptomChecker, setShowSymptomChecker] = useState(false);
   const [activeVideoCall, setActiveVideoCall] = useState<string | null>(null);
 
-  // Redirect to login if not authenticated
-  if (!user) {
+  // Use demo user if Firebase is not configured and no user is authenticated
+  const currentUser = user || (!auth ? {
+    id: 'demo-user',
+    name: 'Demo User',
+    email: 'demo@example.com',
+    role: 'patient' as const
+  } : null);
+
+  // Redirect to login if not authenticated and Firebase is configured
+  if (!currentUser) {
     navigate('/login');
     return null;
   }
 
   const { data: appointments } = useQuery({
-    queryKey: ['/api/appointments/patient', user.id],
+    queryKey: ['/api/appointments/patient', currentUser.id],
   });
 
   const { data: onlineDoctors } = useQuery({
@@ -36,12 +45,12 @@ export default function Home() {
   });
 
   const { data: healthRecords } = useQuery({
-    queryKey: ['/api/health-records/patient', user.id],
+    queryKey: ['/api/health-records/patient', currentUser.id],
   });
 
   const handleVideoConsultation = () => {
     if (onlineDoctors && onlineDoctors.length > 0) {
-      const roomId = `consultation-${user.id}-${Date.now()}`;
+      const roomId = `consultation-${currentUser.id}-${Date.now()}`;
       setActiveVideoCall(roomId);
     } else {
       toast({
@@ -57,7 +66,7 @@ export default function Home() {
   };
 
   const handleConsultDoctor = (doctor: any) => {
-    const roomId = `consultation-${user.id}-${doctor.id}-${Date.now()}`;
+    const roomId = `consultation-${currentUser.id}-${doctor.id}-${Date.now()}`;
     setActiveVideoCall(roomId);
   };
 
@@ -120,7 +129,7 @@ export default function Home() {
       <section className="mb-8">
         <div className="bg-gradient-to-r from-primary to-secondary text-primary-foreground rounded-lg p-6">
           <h2 className="text-2xl font-bold mb-2" data-testid="greeting-user">
-            {getGreeting()} {user.name}!
+            {getGreeting()} {currentUser.name}!
           </h2>
           <p className="text-primary-foreground/90 mb-4">आज आपका स्वास्थ्य कैसा है?</p>
           
