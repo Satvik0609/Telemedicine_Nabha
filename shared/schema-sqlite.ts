@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -37,42 +36,42 @@ export const doctors = sqliteTable("doctors", {
   isActive: integer("is_active", { mode: "boolean" }).default(true),
 });
 
-export const appointments = pgTable("appointments", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  patientId: varchar("patient_id").notNull().references(() => users.id),
-  doctorId: varchar("doctor_id").notNull().references(() => doctors.id),
-  scheduledAt: timestamp("scheduled_at").notNull(),
-  status: text("status", { enum: ["scheduled", "ongoing", "completed", "cancelled"] }).notNull().default("scheduled"),
-  type: text("type", { enum: ["video", "audio", "chat"] }).notNull().default("video"),
+export const appointments = sqliteTable("appointments", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  patientId: text("patient_id").notNull().references(() => users.id),
+  doctorId: text("doctor_id").notNull().references(() => doctors.id),
+  scheduledAt: integer("scheduled_at", { mode: "timestamp" }).notNull(),
+  status: text("status").notNull().default("scheduled"),
+  type: text("type").notNull().default("video"),
   notes: text("notes"),
-  prescription: jsonb("prescription"),
+  prescription: text("prescription"), // JSON string for SQLite
   specialty: text("specialty"),
   reason: text("reason"),
   priority: integer("priority").default(0),
-  appointmentTime: timestamp("appointment_time"),
+  appointmentTime: integer("appointment_time", { mode: "timestamp" }),
   instructions: text("instructions"),
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
-export const healthRecords = pgTable("health_records", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  patientId: varchar("patient_id").notNull().references(() => users.id),
-  doctorId: varchar("doctor_id").references(() => doctors.id),
-  appointmentId: varchar("appointment_id").references(() => appointments.id),
-  type: text("type", { enum: ["vital", "report", "prescription", "diagnosis"] }).notNull(),
+export const healthRecords = sqliteTable("health_records", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  patientId: text("patient_id").notNull().references(() => users.id),
+  doctorId: text("doctor_id").references(() => doctors.id),
+  appointmentId: text("appointment_id").references(() => appointments.id),
+  type: text("type").notNull(),
   title: text("title").notNull(),
-  data: jsonb("data").notNull(),
+  data: text("data").notNull(), // JSON string for SQLite
   fileUrl: text("file_url"),
-  recordDate: timestamp("record_date"),
+  recordDate: integer("record_date", { mode: "timestamp" }),
   value: text("value"),
   unit: text("unit"),
   normalRange: text("normal_range"),
   notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
-export const medicines = pgTable("medicines", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const medicines = sqliteTable("medicines", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   genericName: text("generic_name"),
   dosage: text("dosage").notNull(),
@@ -84,81 +83,83 @@ export const medicines = pgTable("medicines", {
   expiryDate: text("expiry_date"),
 });
 
-export const pharmacies = pgTable("pharmacies", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const pharmacies = sqliteTable("pharmacies", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   address: text("address").notNull(),
   phone: text("phone"),
   latitude: text("latitude"),
   longitude: text("longitude"),
-  isActive: boolean("is_active").default(true),
-  pharmacistId: varchar("pharmacist_id").references(() => users.id),
+  isActive: integer("is_active", { mode: "boolean" }).default(true),
+  pharmacistId: text("pharmacist_id").references(() => users.id),
   licenseNumber: text("license_number"),
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
-export const pharmacists = pgTable("pharmacists", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id),
-  pharmacyId: varchar("pharmacy_id").references(() => pharmacies.id),
+export const pharmacists = sqliteTable("pharmacists", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id),
+  pharmacyId: text("pharmacy_id").references(() => pharmacies.id),
   licenseNumber: text("license_number").notNull(),
   qualification: text("qualification").notNull(),
   experience: integer("experience").notNull(),
-  isActive: boolean("is_active").default(true),
-  createdAt: timestamp("created_at").defaultNow(),
+  isActive: integer("is_active", { mode: "boolean" }).default(true),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
-export const prescriptions = pgTable("prescriptions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  patientId: varchar("patient_id").notNull().references(() => users.id),
-  doctorId: varchar("doctor_id").notNull().references(() => doctors.id),
-  appointmentId: varchar("appointment_id").references(() => appointments.id),
-  medicines: jsonb("medicines").notNull(),
+export const medicineStock = sqliteTable("medicine_stock", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  medicineId: text("medicine_id").notNull().references(() => medicines.id),
+  pharmacyId: text("pharmacy_id").notNull().references(() => pharmacies.id),
+  quantity: integer("quantity").notNull(),
+  minimumStock: integer("minimum_stock").notNull(),
+  maximumStock: integer("maximum_stock").notNull(),
+  status: text("status").notNull().default("available"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+export const prescriptions = sqliteTable("prescriptions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  patientId: text("patient_id").notNull().references(() => users.id),
+  doctorId: text("doctor_id").notNull().references(() => doctors.id),
+  appointmentId: text("appointment_id").references(() => appointments.id),
+  medicines: text("medicines").notNull(), // JSON string for SQLite
   instructions: text("instructions"),
-  status: text("status", { enum: ["pending", "processing", "ready", "dispensed", "cancelled"] }).notNull().default("pending"),
-  pharmacyId: varchar("pharmacy_id").references(() => pharmacies.id),
-  pharmacistId: varchar("pharmacist_id").references(() => pharmacists.id),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  status: text("status").notNull().default("pending"),
+  pharmacyId: text("pharmacy_id").references(() => pharmacies.id),
+  pharmacistId: text("pharmacist_id").references(() => pharmacists.id),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
-export const medicineStock = pgTable("medicine_stock", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  pharmacyId: varchar("pharmacy_id").notNull().references(() => pharmacies.id),
-  medicineId: varchar("medicine_id").notNull().references(() => medicines.id),
-  quantity: integer("quantity").notNull().default(0),
-  status: text("status", { enum: ["available", "limited", "out_of_stock"] }).notNull(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+export const symptomChecks = sqliteTable("symptom_checks", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  patientId: text("patient_id").notNull().references(() => users.id),
+  symptoms: text("symptoms").notNull(), // JSON string for SQLite
+  aiResponse: text("ai_response").notNull(), // JSON string for SQLite
+  severity: text("severity").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
-export const symptomChecks = pgTable("symptom_checks", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  patientId: varchar("patient_id").notNull().references(() => users.id),
-  symptoms: text("symptoms").array().notNull(),
-  aiResponse: jsonb("ai_response").notNull(),
-  severity: text("severity", { enum: ["low", "medium", "high", "emergency"] }).notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const analytics = pgTable("analytics", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  type: text("type", { enum: ["appointment", "consultation", "medicine_usage", "disease_pattern", "user_activity"] }).notNull(),
-  data: jsonb("data").notNull(),
-  date: timestamp("date").notNull(),
+export const analytics = sqliteTable("analytics", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  type: text("type").notNull(),
+  data: text("data").notNull(), // JSON string for SQLite
+  date: integer("date", { mode: "timestamp" }).notNull(),
   location: text("location"),
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
-export const auditLogs = pgTable("audit_logs", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id),
+export const auditLogs = sqliteTable("audit_logs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id),
   action: text("action").notNull(),
   resource: text("resource").notNull(),
-  resourceId: varchar("resource_id"),
-  details: jsonb("details"),
+  resourceId: text("resource_id"),
+  details: text("details"), // JSON string for SQLite
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
 // Relations
@@ -186,7 +187,7 @@ export const pharmacistsRelations = relations(pharmacists, ({ one, many }) => ({
 }));
 
 export const pharmaciesRelations = relations(pharmacies, ({ one, many }) => ({
-  pharmacist: one(pharmacists, { fields: [pharmacies.pharmacistId], references: [pharmacists.userId] }),
+  pharmacist: one(pharmacists, { fields: [pharmacies.pharmacistId], references: [pharmacies.userId] }),
   medicineStock: many(medicineStock),
   prescriptions: many(prescriptions),
 }));
@@ -206,21 +207,6 @@ export const prescriptionsRelations = relations(prescriptions, ({ one }) => ({
   pharmacist: one(pharmacists, { fields: [prescriptions.pharmacistId], references: [pharmacists.id] }),
 }));
 
-export const healthRecordsRelations = relations(healthRecords, ({ one }) => ({
-  patient: one(users, { fields: [healthRecords.patientId], references: [users.id] }),
-  doctor: one(doctors, { fields: [healthRecords.doctorId], references: [doctors.id] }),
-  appointment: one(appointments, { fields: [healthRecords.appointmentId], references: [appointments.id] }),
-}));
-
-export const medicineStockRelations = relations(medicineStock, ({ one }) => ({
-  pharmacy: one(pharmacies, { fields: [medicineStock.pharmacyId], references: [pharmacies.id] }),
-  medicine: one(medicines, { fields: [medicineStock.medicineId], references: [medicines.id] }),
-}));
-
-export const symptomChecksRelations = relations(symptomChecks, ({ one }) => ({
-  patient: one(users, { fields: [symptomChecks.patientId], references: [users.id] }),
-}));
-
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertDoctorSchema = createInsertSchema(doctors).omit({ id: true });
@@ -229,13 +215,13 @@ export const insertAppointmentSchema = createInsertSchema(appointments).omit({ i
 export const insertHealthRecordSchema = createInsertSchema(healthRecords).omit({ id: true, createdAt: true });
 export const insertMedicineSchema = createInsertSchema(medicines).omit({ id: true });
 export const insertPharmacySchema = createInsertSchema(pharmacies).omit({ id: true, createdAt: true });
-export const insertPrescriptionSchema = createInsertSchema(prescriptions).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertMedicineStockSchema = createInsertSchema(medicineStock).omit({ id: true, updatedAt: true });
 export const insertSymptomCheckSchema = createInsertSchema(symptomChecks).omit({ id: true, createdAt: true });
+export const insertPrescriptionSchema = createInsertSchema(prescriptions).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertAnalyticsSchema = createInsertSchema(analytics).omit({ id: true, createdAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 
-// Types
+// TypeScript types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type Doctor = typeof doctors.$inferSelect;
@@ -250,12 +236,12 @@ export type Medicine = typeof medicines.$inferSelect;
 export type InsertMedicine = z.infer<typeof insertMedicineSchema>;
 export type Pharmacy = typeof pharmacies.$inferSelect;
 export type InsertPharmacy = z.infer<typeof insertPharmacySchema>;
-export type Prescription = typeof prescriptions.$inferSelect;
-export type InsertPrescription = z.infer<typeof insertPrescriptionSchema>;
 export type MedicineStock = typeof medicineStock.$inferSelect;
 export type InsertMedicineStock = z.infer<typeof insertMedicineStockSchema>;
 export type SymptomCheck = typeof symptomChecks.$inferSelect;
 export type InsertSymptomCheck = z.infer<typeof insertSymptomCheckSchema>;
+export type Prescription = typeof prescriptions.$inferSelect;
+export type InsertPrescription = z.infer<typeof insertPrescriptionSchema>;
 export type Analytics = typeof analytics.$inferSelect;
 export type InsertAnalytics = z.infer<typeof insertAnalyticsSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;

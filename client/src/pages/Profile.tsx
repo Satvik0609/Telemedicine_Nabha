@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { AppointmentCard } from '@/components/AppointmentCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useAppointments, useSymptomChecks } from '@/hooks/useAppointments';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 
@@ -28,13 +29,8 @@ export default function Profile() {
     return null;
   }
 
-  const { data: appointments } = useQuery({
-    queryKey: ['/api/appointments/patient', user.id],
-  });
-
-  const { data: symptomChecks } = useQuery({
-    queryKey: ['/api/symptom-checks/patient', user.id],
-  });
+  const { data: appointments = [] } = useAppointments();
+  const { data: symptomChecks = [] } = useSymptomChecks();
 
   const handleSaveProfile = () => {
     // TODO: Implement profile update

@@ -13,6 +13,8 @@ import Records from "@/pages/Records";
 import Medicines from "@/pages/Medicines";
 import Profile from "@/pages/Profile";
 import VideoConsultation from "@/pages/VideoConsultation";
+import PharmacistDashboard from "@/pages/PharmacistDashboard";
+import AdminDashboard from "@/pages/AdminDashboard";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -25,6 +27,8 @@ function Router() {
       <Route path="/medicines" component={Medicines} />
       <Route path="/profile" component={Profile} />
       <Route path="/video/:roomId" component={VideoConsultation} />
+      <Route path="/pharmacist" component={PharmacistDashboard} />
+      <Route path="/admin" component={AdminDashboard} />
       {/* Fallback to 404 */}
       <Route component={NotFound} />
     </Switch>

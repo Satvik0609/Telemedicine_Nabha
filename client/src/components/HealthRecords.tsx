@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useHealthRecords } from '@/hooks/useAppointments';
 import { useOfflineStatus, offlineManager } from '@/lib/offline';
 import { format } from 'date-fns';
 
@@ -23,10 +24,7 @@ export function HealthRecords() {
   const isOnline = useOfflineStatus();
   const [offlineRecords, setOfflineRecords] = useState<HealthRecord[]>([]);
 
-  const { data: onlineRecords, isLoading } = useQuery({
-    queryKey: ['/api/health-records/patient', user?.id],
-    enabled: !!user && isOnline,
-  });
+  const { data: onlineRecords = [], isLoading } = useHealthRecords();
 
   useEffect(() => {
     // Load offline records when component mounts

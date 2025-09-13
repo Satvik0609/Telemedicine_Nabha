@@ -9,6 +9,7 @@ import { DoctorCard } from '@/components/DoctorCard';
 import { VideoCall } from '@/components/VideoCall';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useDoctors, useOnlineDoctors } from '@/hooks/useAppointments';
 import { useToast } from '@/hooks/use-toast';
 
 export default function Doctors() {
@@ -20,16 +21,12 @@ export default function Doctors() {
   const [selectedDoctor, setSelectedDoctor] = useState<any>(null);
   const [activeVideoCall, setActiveVideoCall] = useState<string | null>(null);
 
-  const { data: onlineDoctors } = useQuery({
-    queryKey: ['/api/doctors/online'],
-  });
+  const { data: onlineDoctors = [] } = useOnlineDoctors();
+  const { data: allDoctors = [] } = useDoctors();
 
-  const { data: specialtyDoctors } = useQuery({
-    queryKey: ['/api/doctors/specialty', selectedSpecialty],
-    enabled: !!selectedSpecialty,
-  });
-
-  const doctors = selectedSpecialty ? specialtyDoctors : onlineDoctors;
+  const doctors = selectedSpecialty 
+    ? allDoctors.filter((doctor: any) => doctor.specialty === selectedSpecialty)
+    : onlineDoctors;
 
   const filteredDoctors = doctors?.filter((doctor: any) =>
     doctor.user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||

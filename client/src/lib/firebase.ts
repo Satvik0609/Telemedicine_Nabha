@@ -1,38 +1,32 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithRedirect, GoogleAuthProvider, getRedirectResult, signOut } from "firebase/auth";
 
-// Check if Firebase config is available
-const hasFirebaseConfig = !!(
-  import.meta.env.VITE_FIREBASE_API_KEY &&
-  import.meta.env.VITE_FIREBASE_PROJECT_ID &&
-  import.meta.env.VITE_FIREBASE_APP_ID
-);
+// Firebase configuration using your project details
+const firebaseConfig = {
+  apiKey: "AIzaSyBdkzHhsLKPqJk5PwPPFFwjY2onsWtdRCU",
+  authDomain: "telemedicine-2fc1a.firebaseapp.com",
+  projectId: "telemedicine-2fc1a",
+  storageBucket: "telemedicine-2fc1a.firebasestorage.app",
+  messagingSenderId: "355061686159",
+  appId: "1:355061686159:android:431a247a2ee1d8bd28b5fa"
+};
 
-// Only initialize Firebase if config is available
+// Initialize Firebase
 let app: any = null;
 let auth: any = null;
 
-if (hasFirebaseConfig) {
-  const firebaseConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain: `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebasestorage.app`,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  };
-
-  try {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-  } catch (error) {
-    console.warn('Firebase initialization failed:', error);
-    auth = null;
-  }
+try {
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  console.log('Firebase initialized successfully');
+} catch (error) {
+  console.warn('Firebase initialization failed:', error);
+  auth = null;
 }
 
 export { auth };
 
-const provider = hasFirebaseConfig ? new GoogleAuthProvider() : null;
+const provider = auth ? new GoogleAuthProvider() : null;
 
 export function login() {
   if (!auth || !provider) {

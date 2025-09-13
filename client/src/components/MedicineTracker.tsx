@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useMedicines, useMedicineStock } from '@/hooks/useAppointments';
 
 interface Medicine {
   id: string;
@@ -32,15 +33,21 @@ export function MedicineTracker() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null);
 
-  const { data: medicines, isLoading: searchLoading } = useQuery({
-    queryKey: ['/api/medicines/search', { q: searchQuery }],
-    enabled: searchQuery.length > 2,
-  });
+  const { data: allMedicines = [], isLoading: searchLoading } = useMedicines();
+  const { data: allMedicineStock = [], isLoading: stockLoading } = useMedicineStock();
 
-  const { data: medicineStock, isLoading: stockLoading } = useQuery({
-    queryKey: ['/api/medicines', selectedMedicine?.id, 'stock'],
-    enabled: !!selectedMedicine,
-  });
+  // Filter medicines based on search query
+  const medicines = searchQuery.length > 2 
+    ? allMedicines.filter((medicine: Medicine) => 
+        medicine.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        medicine.genericName?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : [];
+
+  // Filter stock for selected medicine
+  const medicineStock = selectedMedicine 
+    ? allMedicineStock.filter((stock: any) => stock.medicineId === selectedMedicine.id)
+    : [];
 
   const getStatusColor = (status: string) => {
     switch (status) {

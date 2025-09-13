@@ -1,8 +1,11 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
-import { insertUserSchema, insertDoctorSchema, insertAppointmentSchema, insertHealthRecordSchema, insertSymptomCheckSchema } from "@shared/schema";
+import { insertUserSchema, insertDoctorSchema, insertPharmacistSchema, insertAppointmentSchema, insertHealthRecordSchema, insertSymptomCheckSchema, insertPrescriptionSchema, insertAnalyticsSchema, insertAuditLogSchema } from "@shared/schema";
+import { SecurityMiddleware } from "./middleware/security";
+import { FHIRTransform } from "@shared/fhirTransform";
+import { createFHIRBundle } from "@shared/fhirTransform";
 // EndlessMedical API - Free medical diagnosis API
 // Documentation: https://www.endlessmedical.com/about-endlessmedical-api/
 
@@ -78,7 +81,7 @@ async function analyzeWithEndlessMedical(symptoms: string[]) {
         });
         console.log(`[EndlessMedical] Added symptom: ${medicalTerm}`);
       } catch (error) {
-        console.log(`[EndlessMedical] Could not add symptom ${medicalTerm}: ${error.message}`);
+        console.log(`[EndlessMedical] Could not add symptom ${medicalTerm}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
 
@@ -96,7 +99,7 @@ async function analyzeWithEndlessMedical(symptoms: string[]) {
 
     return mapEndlessMedicalResponse(diagnosisResponse, conditionsResponse, symptoms);
   } catch (error) {
-    console.error('[EndlessMedical] API Error:', error?.message || error);
+    console.error('[EndlessMedical] API Error:', error instanceof Error ? error.message : error);
     console.log('[EndlessMedical] Using enhanced fallback analysis');
     return getFallbackAnalysis(symptoms);
   }
@@ -246,6 +249,12 @@ function getFallbackAnalysis(symptoms: string[]) {
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
 
+  // Apply security middleware globally
+  app.use(SecurityMiddleware.securityHeadersMiddleware);
+  app.use(SecurityMiddleware.geolocationMiddleware);
+  app.use(SecurityMiddleware.rateLimitMiddleware);
+  app.use(SecurityMiddleware.classifyData);
+
   // WebSocket server for video calls and real-time features
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
   
@@ -254,7 +263,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   wss.on('connection', (ws: WebSocket) => {
     let currentRoom: string | null = null;
 
-    ws.on('message', async (message) => {
+    ws.on('message', async (message: Buffer) => {
       try {
         const data = JSON.parse(message.toString());
         
@@ -304,28 +313,207 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // User routes
-  app.post("/api/users", async (req, res) => {
-    try {
-      const userData = insertUserSchema.parse(req.body);
-      const user = await storage.createUser(userData);
-      res.json(user);
-    } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
-  app.get("/api/users/firebase/:firebaseUid", async (req, res) => {
-    try {
-      const user = await storage.getUserByFirebaseUid(req.params.firebaseUid);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
+  // FHIR Endpoints
+  app.get("/fhir/Patient/:id", 
+    SecurityMiddleware.authenticateToken,
+    SecurityMiddleware.authorizeRole(['patient', 'doctor', 'admin']),
+    SecurityMiddleware.checkCompliance('HL7_FHIR'),
+    SecurityMiddleware.auditMiddleware('read', 'Patient'),
+    async (req: Request, res: Response) => {
+      try {
+        const user = await storage.getUser(req.params.id);
+        if (!user) {
+          return res.status(404).json({ error: "Patient not found" });
+        }
+        const fhirPatient = FHIRTransform.transformUserToFHIRPatient(user);
+        res.json(fhirPatient);
+      } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
       }
-      res.json(user);
-    } catch (error) {
-      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
     }
-  });
+  );
+
+  app.get("/fhir/Practitioner/:id",
+    SecurityMiddleware.authenticateToken,
+    SecurityMiddleware.authorizeRole(['doctor', 'admin']),
+    SecurityMiddleware.checkCompliance('HL7_FHIR'),
+    SecurityMiddleware.auditMiddleware('read', 'Practitioner'),
+    async (req: Request, res: Response) => {
+      try {
+        const doctor = await storage.getDoctor(req.params.id);
+        if (!doctor) {
+          return res.status(404).json({ error: "Practitioner not found" });
+        }
+        const user = await storage.getUser(doctor.userId);
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+        const fhirPractitioner = FHIRTransform.transformDoctorToFHIRPractitioner({ ...doctor, user });
+        res.json(fhirPractitioner);
+      } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+  );
+
+  app.get("/fhir/Appointment/:id",
+    SecurityMiddleware.authenticateToken,
+    SecurityMiddleware.authorizeRole(['patient', 'doctor', 'admin']),
+    SecurityMiddleware.checkCompliance('HL7_FHIR'),
+    SecurityMiddleware.auditMiddleware('read', 'Appointment'),
+    async (req: Request, res: Response) => {
+      try {
+        const appointment = await storage.getAppointment(req.params.id);
+        if (!appointment) {
+          return res.status(404).json({ error: "Appointment not found" });
+        }
+        const patient = await storage.getUser(appointment.patientId);
+        const doctor = await storage.getDoctor(appointment.doctorId);
+        if (!patient || !doctor) {
+          return res.status(404).json({ error: "Related resources not found" });
+        }
+        const user = await storage.getUser(doctor.userId);
+        if (!user) {
+          return res.status(404).json({ error: "Doctor user not found" });
+        }
+        const fhirAppointment = FHIRTransform.transformAppointmentToFHIRAppointment({ 
+          ...appointment, 
+          patient, 
+          doctor: { ...doctor, user } 
+        });
+        res.json(fhirAppointment);
+      } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+  );
+
+  app.get("/fhir/Observation/:id",
+    SecurityMiddleware.authenticateToken,
+    SecurityMiddleware.authorizeRole(['patient', 'doctor', 'admin']),
+    SecurityMiddleware.checkCompliance('HL7_FHIR'),
+    SecurityMiddleware.auditMiddleware('read', 'Observation'),
+    async (req: Request, res: Response) => {
+      try {
+        const healthRecord = await storage.getHealthRecord(req.params.id);
+        if (!healthRecord) {
+          return res.status(404).json({ error: "Observation not found" });
+        }
+        const patient = await storage.getUser(healthRecord.patientId);
+        if (!healthRecord.doctorId) {
+          return res.status(404).json({ error: "Health record has no associated doctor" });
+        }
+        const doctor = await storage.getDoctor(healthRecord.doctorId);
+        if (!patient || !doctor) {
+          return res.status(404).json({ error: "Related resources not found" });
+        }
+        const user = await storage.getUser(doctor.userId);
+        if (!user) {
+          return res.status(404).json({ error: "Doctor user not found" });
+        }
+        const fhirObservation = FHIRTransform.transformHealthRecordToFHIRObservation({ 
+          ...healthRecord, 
+          patient, 
+          doctor: { ...doctor, user } 
+        });
+        res.json(fhirObservation);
+      } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+  );
+
+  app.get("/fhir/Medication/:id",
+    SecurityMiddleware.authenticateToken,
+    SecurityMiddleware.authorizeRole(['patient', 'doctor', 'pharmacist', 'admin']),
+    SecurityMiddleware.checkCompliance('HL7_FHIR'),
+    SecurityMiddleware.auditMiddleware('read', 'Medication'),
+    async (req: Request, res: Response) => {
+      try {
+        const medicine = await storage.getMedicine(req.params.id);
+        if (!medicine) {
+          return res.status(404).json({ error: "Medication not found" });
+        }
+        const fhirMedication = FHIRTransform.transformMedicineToFHIRMedication(medicine);
+        res.json(fhirMedication);
+      } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+  );
+
+  app.get("/fhir/Bundle",
+    SecurityMiddleware.authenticateToken,
+    SecurityMiddleware.authorizeRole(['admin']),
+    SecurityMiddleware.checkCompliance('HL7_FHIR'),
+    SecurityMiddleware.auditMiddleware('read', 'Bundle'),
+    async (req: Request, res: Response) => {
+      try {
+        const { resourceType, patientId } = req.query;
+        let resources: any[] = [];
+
+        if (resourceType === 'Patient' && patientId) {
+          const user = await storage.getUser(patientId as string);
+          if (user) {
+            resources.push(FHIRTransform.transformUserToFHIRPatient(user));
+          }
+        } else if (resourceType === 'Appointment' && patientId) {
+          const appointments = await storage.getPatientAppointments(patientId as string);
+          for (const appointment of appointments) {
+            const patient = await storage.getUser(appointment.patientId);
+            const doctor = await storage.getDoctor(appointment.doctorId);
+            if (patient && doctor) {
+              const user = await storage.getUser(doctor.userId);
+              if (user) {
+                resources.push(FHIRTransform.transformAppointmentToFHIRAppointment({ 
+                  ...appointment, 
+                  patient, 
+                  doctor: { ...doctor, user } 
+                }));
+              }
+            }
+          }
+        }
+
+        const bundle = createFHIRBundle(resources, 'searchset');
+        res.json(bundle);
+      } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+  );
+
+  // User routes
+  app.post("/api/users", 
+    SecurityMiddleware.encryptSensitiveData(['phone', 'email', 'address']),
+    SecurityMiddleware.checkCompliance('HIPAA'),
+    SecurityMiddleware.auditMiddleware('create', 'User'),
+    async (req: Request, res: Response) => {
+      try {
+        const userData = insertUserSchema.parse(req.body);
+        const user = await storage.createUser(userData);
+        res.json(user);
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+  );
+
+  app.get("/api/users/firebase/:firebaseUid", 
+    SecurityMiddleware.authenticateToken,
+    SecurityMiddleware.auditMiddleware('read', 'User'),
+    async (req: Request, res: Response) => {
+      try {
+        const user = await storage.getUserByFirebaseUid(req.params.firebaseUid);
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+        res.json(user);
+      } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+  );
 
   app.put("/api/users/:id", async (req, res) => {
     try {
@@ -469,35 +657,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Symptom checker routes
-  app.post("/api/symptom-check", async (req, res) => {
-    try {
-      const { symptoms, patientId } = req.body;
-      
-      if (!symptoms || !Array.isArray(symptoms) || symptoms.length === 0) {
-        return res.status(400).json({ error: "Symptoms array is required" });
+  app.post("/api/symptom-check", 
+    SecurityMiddleware.authenticateToken,
+    SecurityMiddleware.authorizeRole(['patient', 'doctor']),
+    SecurityMiddleware.checkCompliance('HIPAA'),
+    SecurityMiddleware.auditMiddleware('create', 'SymptomCheck'),
+    async (req: Request, res: Response) => {
+      try {
+        const { symptoms, patientId } = req.body;
+        
+        if (!symptoms || !Array.isArray(symptoms) || symptoms.length === 0) {
+          return res.status(400).json({ error: "Symptoms array is required" });
+        }
+
+        if (!patientId) {
+          return res.status(400).json({ error: "Patient ID is required" });
+        }
+
+        // AI analysis using EndlessMedical API (Free)
+        const aiResponse = await analyzeWithEndlessMedical(symptoms);
+        
+        // Save symptom check to database
+        const symptomCheck = await storage.createSymptomCheck({
+          patientId,
+          symptoms,
+          aiResponse,
+          severity: aiResponse.severity
+        });
+
+        res.json(symptomCheck);
+      } catch (error) {
+        console.error('Symptom check error:', error);
+        res.status(500).json({ error: "Failed to analyze symptoms. Please try again later." });
       }
-
-      if (!patientId) {
-        return res.status(400).json({ error: "Patient ID is required" });
-      }
-
-      // AI analysis using EndlessMedical API (Free)
-      const aiResponse = await analyzeWithEndlessMedical(symptoms);
-      
-      // Save symptom check to database
-      const symptomCheck = await storage.createSymptomCheck({
-        patientId,
-        symptoms,
-        aiResponse,
-        severity: aiResponse.severity
-      });
-
-      res.json(symptomCheck);
-    } catch (error) {
-      console.error('Symptom check error:', error);
-      res.status(500).json({ error: "Failed to analyze symptoms. Please try again later." });
     }
-  });
+  );
 
   app.get("/api/symptom-checks/patient/:patientId", async (req, res) => {
     try {
@@ -507,6 +701,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
+
+  // Pharmacist routes
+  app.post("/api/pharmacists", async (req, res) => {
+    try {
+      const pharmacistData = insertPharmacistSchema.parse(req.body);
+      const pharmacist = await storage.createPharmacist(pharmacistData);
+      res.json(pharmacist);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  app.get("/api/pharmacists/:id/prescriptions", async (req, res) => {
+    try {
+      const prescriptions = await storage.getPharmacistPrescriptions(req.params.id);
+      res.json(prescriptions);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  app.put("/api/prescriptions/:id/status", async (req, res) => {
+    try {
+      const { status } = req.body;
+      const prescription = await storage.updatePrescriptionStatus(req.params.id, status);
+      res.json(prescription);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  app.put("/api/medicine-stock/:id", async (req, res) => {
+    try {
+      const { quantity } = req.body;
+      const stock = await storage.updateMedicineStock(req.params.id, quantity);
+      res.json(stock);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  // Admin routes
+  app.get("/api/admin/users", async (req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      res.json(users);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  app.put("/api/admin/users/:id/status", async (req, res) => {
+    try {
+      const { isActive } = req.body;
+      const user = await storage.updateUserStatus(req.params.id, isActive);
+      res.json(user);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  app.get("/api/admin/analytics", async (req, res) => {
+    try {
+      const analytics = await storage.getAnalytics();
+      res.json(analytics);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  app.get("/api/admin/audit-logs", async (req, res) => {
+    try {
+      const logs = await storage.getAuditLogs();
+      res.json(logs);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  app.post("/api/admin/analytics", async (req, res) => {
+    try {
+      const analyticsData = insertAnalyticsSchema.parse(req.body);
+      const analytics = await storage.createAnalytics(analyticsData);
+      res.json(analytics);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  app.post("/api/admin/audit-logs", 
+    SecurityMiddleware.authenticateToken,
+    SecurityMiddleware.authorizeRole(['admin']),
+    SecurityMiddleware.checkCompliance('HIPAA'),
+    SecurityMiddleware.auditMiddleware('create', 'AuditLog'),
+    async (req: Request, res: Response) => {
+      try {
+        const auditData = insertAuditLogSchema.parse(req.body);
+        const auditLog = await storage.createAuditLog(auditData);
+        res.json(auditLog);
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+  );
+
+  // Apply security error handler
+  app.use(SecurityMiddleware.securityErrorHandler);
 
   return httpServer;
 }

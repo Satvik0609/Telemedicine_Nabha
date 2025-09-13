@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useAppointments, useOnlineDoctors, useHealthRecords } from '@/hooks/useAppointments';
 import { auth } from '@/lib/firebase';
 import { AppointmentCard } from '@/components/AppointmentCard';
 import { DoctorCard } from '@/components/DoctorCard';
@@ -36,17 +37,20 @@ export default function Home() {
     return null;
   }
 
-  const { data: appointments } = useQuery({
-    queryKey: ['/api/appointments/patient', currentUser.id],
-  });
+  // Redirect to role-specific dashboards
+  if (currentUser.role === 'pharmacist') {
+    navigate('/pharmacist');
+    return null;
+  }
+  
+  if (currentUser.role === 'admin') {
+    navigate('/admin');
+    return null;
+  }
 
-  const { data: onlineDoctors } = useQuery({
-    queryKey: ['/api/doctors/online'],
-  });
-
-  const { data: healthRecords } = useQuery({
-    queryKey: ['/api/health-records/patient', currentUser.id],
-  });
+  const { data: appointments = [] } = useAppointments();
+  const { data: onlineDoctors = [] } = useOnlineDoctors();
+  const { data: healthRecords = [] } = useHealthRecords();
 
   const handleVideoConsultation = () => {
     if (onlineDoctors && onlineDoctors.length > 0) {

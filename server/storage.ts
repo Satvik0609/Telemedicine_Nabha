@@ -1,9 +1,10 @@
 import { 
-  users, doctors, appointments, healthRecords, medicines, pharmacies, medicineStock, symptomChecks,
-  type User, type InsertUser, type Doctor, type InsertDoctor, type Appointment, type InsertAppointment,
+  users, doctors, pharmacists, appointments, healthRecords, medicines, pharmacies, medicineStock, symptomChecks, prescriptions, analytics, auditLogs,
+  type User, type InsertUser, type Doctor, type InsertDoctor, type Pharmacist, type InsertPharmacist, type Appointment, type InsertAppointment,
   type HealthRecord, type InsertHealthRecord, type Medicine, type InsertMedicine,
   type Pharmacy, type InsertPharmacy, type MedicineStock, type InsertMedicineStock,
-  type SymptomCheck, type InsertSymptomCheck
+  type SymptomCheck, type InsertSymptomCheck, type Prescription, type InsertPrescription,
+  type Analytics, type InsertAnalytics, type AuditLog, type InsertAuditLog
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc } from "drizzle-orm";
@@ -53,6 +54,29 @@ export interface IStorage {
   // Symptom check operations
   createSymptomCheck(check: InsertSymptomCheck): Promise<SymptomCheck>;
   getPatientSymptomChecks(patientId: string): Promise<SymptomCheck[]>;
+
+  // Pharmacist operations
+  createPharmacist(pharmacist: InsertPharmacist): Promise<Pharmacist>;
+  getPharmacist(id: string): Promise<Pharmacist | undefined>;
+  getPharmacistByUserId(userId: string): Promise<Pharmacist | undefined>;
+  updatePharmacist(id: string, updates: Partial<InsertPharmacist>): Promise<Pharmacist>;
+
+  // Prescription operations
+  createPrescription(prescription: InsertPrescription): Promise<Prescription>;
+  getPrescription(id: string): Promise<Prescription | undefined>;
+  getPharmacistPrescriptions(pharmacistId: string): Promise<(Prescription & { patient: User; doctor: Doctor & { user: User } })[]>;
+  updatePrescriptionStatus(id: string, status: string): Promise<Prescription>;
+
+  // Medicine stock operations (updated)
+  updateMedicineStock(id: string, quantity: number): Promise<MedicineStock>;
+
+  // Admin operations
+  getAllUsers(): Promise<User[]>;
+  updateUserStatus(id: string, isActive: boolean): Promise<User>;
+  getAnalytics(): Promise<Analytics[]>;
+  createAnalytics(analytics: InsertAnalytics): Promise<Analytics>;
+  getAuditLogs(): Promise<AuditLog[]>;
+  createAuditLog(auditLog: InsertAuditLog): Promise<AuditLog>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -223,13 +247,27 @@ export class DatabaseStorage implements IStorage {
     return result.map(({ medicine_stock: stock, pharmacies: pharmacy }) => ({ ...stock, pharmacy }));
   }
 
-  async updateMedicineStock(pharmacyId: string, medicineId: string, updates: Partial<InsertMedicineStock>): Promise<MedicineStock> {
-    const [stock] = await db
-      .update(medicineStock)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(and(eq(medicineStock.pharmacyId, pharmacyId), eq(medicineStock.medicineId, medicineId)))
-      .returning();
-    return stock;
+  async updateMedicineStock(pharmacyId: string, medicineId: string, updates: Partial<InsertMedicineStock>): Promise<MedicineStock>;
+  async updateMedicineStock(id: string, quantity: number): Promise<MedicineStock>;
+  async updateMedicineStock(pharmacyIdOrId: string, medicineIdOrQuantity: string | number, updates?: Partial<InsertMedicineStock>): Promise<MedicineStock> {
+    if (typeof medicineIdOrQuantity === 'number') {
+      // Second overload: updateMedicineStock(id: string, quantity: number)
+      const status = medicineIdOrQuantity === 0 ? 'out_of_stock' : medicineIdOrQuantity < 10 ? 'limited' : 'available';
+      const [stock] = await db
+        .update(medicineStock)
+        .set({ quantity: medicineIdOrQuantity, status: status as any, updatedAt: new Date() })
+        .where(eq(medicineStock.id, pharmacyIdOrId))
+        .returning();
+      return stock;
+    } else {
+      // First overload: updateMedicineStock(pharmacyId: string, medicineId: string, updates: Partial<InsertMedicineStock>)
+      const [stock] = await db
+        .update(medicineStock)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(and(eq(medicineStock.pharmacyId, pharmacyIdOrId), eq(medicineStock.medicineId, medicineIdOrQuantity)))
+        .returning();
+      return stock;
+    }
   }
 
   async createMedicineStock(insertStock: InsertMedicineStock): Promise<MedicineStock> {
@@ -248,6 +286,103 @@ export class DatabaseStorage implements IStorage {
       .from(symptomChecks)
       .where(eq(symptomChecks.patientId, patientId))
       .orderBy(desc(symptomChecks.createdAt));
+  }
+
+  // Pharmacist operations
+  async createPharmacist(insertPharmacist: InsertPharmacist): Promise<Pharmacist> {
+    const [pharmacist] = await db.insert(pharmacists).values(insertPharmacist).returning();
+    return pharmacist;
+  }
+
+  async getPharmacist(id: string): Promise<Pharmacist | undefined> {
+    const [pharmacist] = await db.select().from(pharmacists).where(eq(pharmacists.id, id));
+    return pharmacist || undefined;
+  }
+
+  async getPharmacistByUserId(userId: string): Promise<Pharmacist | undefined> {
+    const [pharmacist] = await db.select().from(pharmacists).where(eq(pharmacists.userId, userId));
+    return pharmacist || undefined;
+  }
+
+  async updatePharmacist(id: string, updates: Partial<InsertPharmacist>): Promise<Pharmacist> {
+    const [pharmacist] = await db.update(pharmacists).set(updates).where(eq(pharmacists.id, id)).returning();
+    return pharmacist;
+  }
+
+  // Prescription operations
+  async createPrescription(insertPrescription: InsertPrescription): Promise<Prescription> {
+    const [prescription] = await db.insert(prescriptions).values(insertPrescription).returning();
+    return prescription;
+  }
+
+  async getPrescription(id: string): Promise<Prescription | undefined> {
+    const [prescription] = await db.select().from(prescriptions).where(eq(prescriptions.id, id));
+    return prescription || undefined;
+  }
+
+  async getPharmacistPrescriptions(pharmacistId: string): Promise<(Prescription & { patient: User; doctor: Doctor & { user: User } })[]> {
+    const result = await db
+      .select()
+      .from(prescriptions)
+      .innerJoin(users, eq(prescriptions.patientId, users.id))
+      .innerJoin(doctors, eq(prescriptions.doctorId, doctors.id))
+      .innerJoin(users, eq(doctors.userId, users.id))
+      .where(eq(prescriptions.pharmacistId, pharmacistId))
+      .orderBy(desc(prescriptions.createdAt));
+    
+    return result.map(({ prescriptions: prescription, users: patient, doctors: doctor }) => ({
+      ...prescription,
+      patient,
+      doctor: { ...doctor, user: patient } // Note: This needs proper user mapping
+    }));
+  }
+
+  async updatePrescriptionStatus(id: string, status: string): Promise<Prescription> {
+    const [prescription] = await db
+      .update(prescriptions)
+      .set({ status: status as any, updatedAt: new Date() })
+      .where(eq(prescriptions.id, id))
+      .returning();
+    return prescription;
+  }
+
+  // Medicine stock operations (updated)
+  async updateMedicineStockById(id: string, quantity: number): Promise<MedicineStock> {
+    const status = quantity === 0 ? 'out_of_stock' : quantity < 10 ? 'limited' : 'available';
+    const [stock] = await db
+      .update(medicineStock)
+      .set({ quantity, status: status as any, updatedAt: new Date() })
+      .where(eq(medicineStock.id, id))
+      .returning();
+    return stock;
+  }
+
+  // Admin operations
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async updateUserStatus(id: string, isActive: boolean): Promise<User> {
+    const [user] = await db.update(users).set({ isActive: isActive as any }).where(eq(users.id, id)).returning();
+    return user;
+  }
+
+  async getAnalytics(): Promise<Analytics[]> {
+    return await db.select().from(analytics).orderBy(desc(analytics.createdAt));
+  }
+
+  async createAnalytics(insertAnalytics: InsertAnalytics): Promise<Analytics> {
+    const [analyticsRecord] = await db.insert(analytics).values(insertAnalytics).returning();
+    return analyticsRecord;
+  }
+
+  async getAuditLogs(): Promise<AuditLog[]> {
+    return await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
+  }
+
+  async createAuditLog(insertAuditLog: InsertAuditLog): Promise<AuditLog> {
+    const [auditLog] = await db.insert(auditLogs).values(insertAuditLog).returning();
+    return auditLog;
   }
 }
 

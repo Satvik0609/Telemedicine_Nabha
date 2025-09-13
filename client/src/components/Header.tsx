@@ -1,12 +1,12 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { LanguageSwitcher } from './LanguageSwitcher';
 
 export function Header() {
   const { user, signOut } = useAuth();
-  const { language, setLanguage, t } = useLanguage();
+  const { t } = useLanguage();
 
   const handleEmergencyCall = () => {
     window.open('tel:108', '_self');
@@ -28,16 +28,7 @@ export function Header() {
           
           <div className="flex items-center space-x-4">
             {/* Language Selector */}
-            <Select value={language} onValueChange={setLanguage} data-testid="language-selector">
-              <SelectTrigger className="w-24">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="hi">हिंदी</SelectItem>
-                <SelectItem value="pa">ਪੰਜਾਬੀ</SelectItem>
-                <SelectItem value="en">English</SelectItem>
-              </SelectContent>
-            </Select>
+            <LanguageSwitcher />
             
             {/* Emergency Button */}
             <Button 
